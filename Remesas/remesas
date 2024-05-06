@@ -1,0 +1,18 @@
+library(tidyverse)
+library(seasonal)
+
+wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas/"
+
+series_originales <- read_csv("data.csv")
+series_tiempo <- ts(series_originales[,-1], start = c(1995, 1), frequency = 12)
+
+plot(decompose(series_tiempo, type="multiplicative")) #descomposición
+
+Model <- seas(series_tiempo, x11 = "") #modelo de ajuste estacional
+summary(Model)
+
+plot(Model) #gráficos del ajuste estacional
+
+serie_ajustada <- final(Model) # Obtener la serie ajustada del modelo
+
+write.csv(cbind(series_originales, serie_ajustada), "series_ajustadas.csv", row.names = FALSE)
