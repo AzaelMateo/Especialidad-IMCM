@@ -1,18 +1,89 @@
 library(tidyverse)
 library(seasonal)
+library(inegiR)
+library(siebanxicor)
 
 wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas/"
+setwd(wd)
+options(scipen=999)
 
-series_originales <- read_csv("data.csv")
-series_tiempo <- ts(series_originales[,-1], start = c(1995, 1), frequency = 12)
+# Descargamos la serie del INPC usando la API de Inegi
+token_inegi <- "fc69a858-83ff-46cf-16e1-592f67f0f400"
+url_inegi <- paste("https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/CL_INDICATOR/628194/es/BIE/2.0/",
+             token_inegi,
+             "?type=xml",
+             sep = "")
 
-plot(decompose(series_tiempo, type="multiplicative")) #descomposición
 
-Model <- seas(series_tiempo, x11 = "") #modelo de ajuste estacional
-summary(Model)
+download.file(url_inegi, "metadata.xml", method = "auto")
 
-plot(Model) #gráficos del ajuste estacional
+series <- list(
+  inpc = "628194" #deflactor del PIB
+)
 
-serie_ajustada <- final(Model) # Obtener la serie ajustada del modelo
+# Definir función para procesar cada serie
+procesar_serie <- function(serie_id, token_inegi) {
+  serie <- inegi_series(serie_id, token_inegi)
+  serie <- as_tibble(serie) %>%
+    select(-date_shortcut, -notes) %>%
+    arrange(date)
+  
+  return(serie)
+}
 
-write.csv(cbind(series_originales, serie_ajustada), "series_ajustadas.csv", row.names = FALSE)
+# Procesar cada serie
+for (nombre_serie in names(series)) {
+  assign(nombre_serie, procesar_serie(series[[nombre_serie]], token_inegi))
+}
+
+inpc <- filter(inpc, date >= as.Date("1995-01-01")) %>% 
+  rename(Fecha = date, inpc = values)
+
+# Descargamos la serie del total de remesas a precios corrientes usando la API de Banxico
+setToken("1af6c7a83023f55e305ff39f285c00d998c6c05e0c77ff08bd9f019e619453ff")
+idSeries <- c("SE27803", #remesas totales corrientes
+              "SF17908") #tipo de cambio promedio mensual
+series_banxico <- getSeriesData(idSeries, '1995-01-01','2024-03-31')
+
+remesas <- as_tibble(series_banxico[[2]]) %>% 
+  rename(Fecha = date, remesas_dlls = value)
+
+tdc <- as_tibble(series_banxico[[1]]) %>% 
+  rename(Fecha = date, tdc = value)
+
+# Comenzamos a trabajar las series de tiempo
+series_originales <- cbind(inpc, remesas[,-1], tdc[,-1]) %>% 
+  mutate(remesas_mxn = remesas_dlls * tdc, 
+         base = 99.49216, 
+         remesas_mxn_real = remesas_mxn * (inpc/base)) %>% 
+  filter(Fecha >= as.Date("2017-01-01"))
+
+ts_remesas_dlls <- ts(series_originales[,3], start = c(2017, 1), frequency = 12)
+ts_remesas_mxn_real <- ts(series_originales[,7], start = c(2017, 1), frequency = 12)
+
+plot(decompose(ts_remesas_dlls)) #descomposición
+plot(decompose(ts_remesas_mxn_real)) #descomposición
+
+Model_dlls <- seas(ts_remesas_dlls, x11 = "") #modelo de ajuste estacional
+summary(Model_dlls)
+Model_mxn_real <- seas(ts_remesas_mxn_real, x11 = "") #modelo de ajuste estacional
+summary(Model_mxn_real)
+
+plot(Model_dlls) #gráficos del ajuste estacional
+plot(Model_mxn_real) #gráficos del ajuste estacional
+
+dlls_ajustada <- final(Model_dlls) # Obtener la serie ajustada del modelo
+mxn_real_ajustada <- final(Model_mxn_real) # Obtener la serie ajustada del modelo
+
+# Configurar el primer eje vertical y trazar la primera serie
+plot(dlls_ajustada, type = "l", col = "red", ylim = c(2000, 6000), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
+axis(side = 1, at = seq_along(series_originales$Fecha), labels = series_originales$Fecha, las = 2)
+axis(side = 2, at = pretty(range(dlls_ajustada)), col = "red", col.axis = "red", las = 2)
+
+# Configurar el segundo eje vertical y trazar la segunda serie
+par(new = TRUE)
+plot(mxn_real_ajustada, type = "l", col = "blue", ylim = range(mxn_real_ajustada), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
+axis(side = 4, at = pretty(range(mxn_real_ajustada)), col = "blue", col.axis = "blue", las = 2)
+
+title(main = "Ingreso por Remesas (millones)")
+legend("topleft", legend = c("Dólares", "Pesos Constantes"), col = c("red", "blue"), lty = 1)
