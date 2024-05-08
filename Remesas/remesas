@@ -1,9 +1,4 @@
 
-wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas/"
-setwd(wd)
-options(scipen=999)
-
-
 #/************************************************************************************************************************************************
 # Filename: AM202405_Remesas
 # Author: Azael Mateo
@@ -14,11 +9,21 @@ options(scipen=999)
 # Created files: -
 #/************************************************************************************************************************************************/
 
+rm(list = ls())
+wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas/"
+setwd(wd)
+options(scipen=999)
+
 library(tidyverse)
 library(seasonal)
 library(inegiR)
 library(siebanxicor)
+library(ggtext)
+library(janitor)
+library(glue)
+library(ggthemes)
 
+# Descarga y limpieza de datos --------------------------------------------------------------------------------------------------------------
 
 # Descargamos las series de interés usando la API de Inegi
 token_inegi <- "fc69a858-83ff-46cf-16e1-592f67f0f400"
@@ -62,17 +67,30 @@ idSeries <- c("SE27803", #remesas totales corrientes
 series_banxico <- getSeriesData(idSeries, '1995-01-01','2024-03-31')
 
 # Limpiamos serie de remesas
-remesas <- as_tibble(series_banxico[[1]]) %>% 
+remesas <- as_tibble(series_banxico[[2]]) %>% 
   rename(Fecha = date, remesas_dlls = value)
 
 # Limpiamos serie de tipo de cambio
-tdc <- as_tibble(series_banxico[[2]]) %>% 
+tdc <- as_tibble(series_banxico[[1]]) %>% 
   rename(Fecha = date, tdc = value)
 
 # Construimos base que integra todas las series
 series_originales <- cbind(inpc, remesas[,-1], tdc[,-1]) %>% 
   mutate(remesas_mxn = remesas_dlls * tdc, 
          remesas_mxn_real = remesas_mxn / inpc * 100)
+
+
+# Exportamos a Excel --------------------------------------------------------------------------------------------------------------
+
+# Integramos series ajustadas a nuestra base
+series_ajustadas <- series_originales %>% 
+  cbind(dlls_ajustada, mxn_real_ajustada) %>% 
+  mutate(dlls_ajustada = as.numeric(dlls_ajustada), mxn_real_ajustada = as.numeric(mxn_real_ajustada))
+
+write.csv(series_ajustadas, "series_ajustadas.csv", row.names = FALSE)
+
+
+# Exploración de Series de Tiempo --------------------------------------------------------------------------------------------------------------
 
 # Construimos las series de tiempo que nos interesan
 ts_remesas_dlls <- ts(series_originales[,3], start = c(1995, 1), frequency = 12)
@@ -106,6 +124,30 @@ axis(side = 4, at = pretty(range(mxn_real_ajustada)), col = "blue", col.axis = "
 title(main = "Recepción de Remesas (millones)")
 legend("topleft", legend = c("Dólares", "Pesos Constantes"), col = c("red", "blue"), lty = 1)
 
-# Integramos series ajustadas a nuestra base
-series_ajustadas <- series_originales %>% 
-  cbind(dlls_ajustada, mxn_real_ajustada)
+boxplot(ts_remesas_dlls~cycle(ts_remesas_dlls), xlab = "Month", ylab = "Dólares",
+        main = "Recepción de Remesas", names = month.abb, col = "red")
+
+boxplot(ts_remesas_mxn_real~cycle(ts_remesas_mxn_real), xlab = "Month", ylab = "Pesos Constantes",
+        main = "Recepción de Remesas", names = month.abb, col = "blue")
+
+
+# Visualización de Datos --------------------------------------------------------------------------------------------------------------
+# Crear el gráfico
+pal <- c("#e01a4f","#53b3cb")
+
+ggplot() +
+  geom_line(data = filter(series_ajustadas, Fecha >= as.Date("2014-01-01")), aes(x = Fecha, y = dlls_ajustada), size = 2) +
+  labs(x = "Fecha", 
+       y = "Dólares",
+       caption = "Fuente: INEGI 2024; Banxico 2024. Precios Reales 2018. | Elaborado por Azael Mateo (@xzxxlmxtxx)") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(2000, 6000), breaks = seq(2000, 6000, 500), labels = scales::dollar(scale = 0.001)) +
+  scale_color_manual(values = pal) +
+  theme_tufte()+
+  theme(
+    plot.caption = element_text(size = 12, family = "Goldman Sans Condensed Regular", vjust = -1.3),
+    legend.position = "none",
+    axis.text = element_text(size = 12, family = "Goldman Sans Condensed Regular"),
+    axis.ticks = element_blank(),
+    panel.grid.major = element_line(linetype = 1, color = alpha("#E5E7E9", 0.6), size = 0.5)
+  )
