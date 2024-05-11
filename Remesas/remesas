@@ -35,7 +35,7 @@ url_inegi <- paste("https://www.inegi.org.mx/app/api/indicadores/desarrolladores
 
 download.file(url_inegi, "metadata.xml", method = "auto")
 
-vars <- list(
+vars_inegi <- list(
   inpc = "628194" #inpc
 )
 
@@ -50,8 +50,8 @@ procesar_serie <- function(serie_id, token_inegi) {
 }
 
 # Procesar cada serie
-for (nombre_serie in names(vars)) {
-  assign(nombre_serie, procesar_serie(vars[[nombre_serie]], token_inegi))
+for (nombre_serie in names(vars_inegi)) {
+  assign(nombre_serie, procesar_serie(vars_inegi[[nombre_serie]], token_inegi))
 }
 
 # Limpiamos serie del inpc
@@ -61,30 +61,82 @@ inpc <- filter(inpc, date >= as.Date("1995-01-01") & date <= as.Date("2024-03-01
 # Descargamos las series de interés usando la API de Banxico
 setToken("1af6c7a83023f55e305ff39f285c00d998c6c05e0c77ff08bd9f019e619453ff")
 
-idSeries <- c("SE27803", #remesas totales corrientes
-              "SF17908") #tipo de cambio promedio mensual
+vars_banxico <- list(
+  remesas_dlls = "SE27803", #remesas totales corrientes
+  tdc = "SF17908",#tipo de cambio
+  Ags = "SE29670",#Aguascalientes
+  BC = "SE29671", #Baja California
+  BCS = "SE29672", #Baja California Sur
+  Camp = "SE29673", #Campeche
+  Coah = "SE29674", #Coahuila
+  Col = "SE29675", #Colima
+  Chis = "SE29676", #Chiapas
+  Chih = "SE29677", #Chihuahua
+  CDMX = "SE29678", #CDMX
+  Dgo = "SE29679", #Durango
+  Mex = "SE29680", #México
+  Gto = "SE29681", #Guanajuato
+  Gro = "SE29682", #Guerrero
+  Hgo = "SE29683", #Hidalgo
+  Jal = "SE29684", #Jalisco
+  Mich = "SE29685", #Michoacán
+  Mor = "SE29686", #Morelos
+  Nay = "SE29687", #Nayarit
+  NL = "SE29688", #Nuevo León
+  Oax = "SE29689", #Oaxaca
+  Pue = "SE29690", #Puebla
+  Qro = "SE29691", #Querétaro
+  QRoo = "SE29692", #Quintana Roo
+  SLP = "SE29693", #San Luis Potosí
+  Sin = "SE29694", #Sinaloa
+  Son = "SE29695", #Sonora
+  Tab = "SE29696", #Tabasco
+  Tamps = "SE29697", #Tamaulipas
+  Tlax = "SE29698", #Tlaxcala
+  Ver = "SE29699", #Veracruz
+  Yuc = "SE29700", #Yucatán
+  Zac = "SE29701", #Zacatecas
+  Nal = "SE29702" #Nacional 
+) 
 
-series_banxico <- getSeriesData(idSeries, '1995-01-01','2024-03-31')
+# Procesar cada serie
+series_banxico <- map(names(vars_banxico), ~ {
+  temp <- getSeriesData(vars_banxico[[.x]], '1995-01-01', '2024-03-31')[[1]]
+  setNames(as_tibble(temp), c("Fecha", .x))
+})
 
-# Limpiamos serie de remesas
-remesas <- as_tibble(series_banxico[[2]]) %>% 
-  rename(Fecha = date, remesas_dlls = value)
+# conglomeramos cada base en una sola 
+conglo <- series_banxico[[1]]
+for (i in 2:length(series_banxico)) {
+  conglo <- left_join(conglo, series_banxico[[i]], by = "Fecha")
+}
 
-# Limpiamos serie de tipo de cambio
-tdc <- as_tibble(series_banxico[[1]]) %>% 
-  rename(Fecha = date, tdc = value)
+# construimos base nacional
+remesas_nal <- left_join(conglo, inpc, by = "Fecha") %>% 
+  mutate(remesas_mxn = remesas_dlls * tdc,
+         remesas_mxn_real = remesas_mxn / inpc * 100) %>% 
+  select(Fecha:tdc, remesas_mxn, inpc, remesas_mxn_real)
 
-# Construimos base que integra todas las series
-series_originales <- cbind(inpc, remesas[,-1], tdc[,-1]) %>% 
-  mutate(remesas_mxn = remesas_dlls * tdc, 
-         remesas_mxn_real = remesas_mxn / inpc * 100)
+# construimos base subnacional
+remesas_subnal <- left_join(conglo, inpc, by = "Fecha") %>% 
+  select(Fecha, tdc, inpc, Ags:Nal) %>% 
+  filter(!is.na(Nal))
+
+# Creamos un bucle para iterar sobre cada entidad federativa
+tdc <- remesas_subnal$tdc
+inpc <- remesas_subnal$inpc
+
+for (col in names(remesas_subnal)[-which(names(remesas_subnal) == c("Fecha", "tdc", "inpc"))]) {
+  remesas_subnal[[col]] <- remesas_subnal[[col]] * tdc / inpc *100
+}
+
 
 
 # Exploración de Series de Tiempo ----------------------------------------------------------------------------------------------------------------
 
 # Construimos las series de tiempo que nos interesan
-ts_remesas_dlls <- ts(series_originales[,3], start = c(1995, 1), frequency = 12)
-ts_remesas_mxn_real <- ts(series_originales[,6], start = c(1995, 1), frequency = 12)
+ts_remesas_dlls <- ts(remesas_nal[,2], start = c(1995, 1), frequency = 12)
+ts_remesas_mxn_real <- ts(remesas_nal[,6], start = c(1995, 1), frequency = 12)
 
 plot(decompose(ts_remesas_dlls)) #descomposición
 plot(decompose(ts_remesas_mxn_real)) #descomposición
@@ -102,19 +154,19 @@ mxn_real_ajustada <- final(Model_mxn_real) # Obtener la serie ajustada del model
 dlls_tendencia <- trend(Model_dlls) # Obtener la serie tendencia-ciclo del modelo
 mxn_real_tendencia <- trend(Model_mxn_real) # Obtener la serie tendencia-ciclo del modelo
 
-# Exportamos a Excel ------------------------------------------------------------------------------------------------------------------------------
-
 # Integramos series ajustadas a nuestra base
-series_ajustadas <- series_originales %>% 
+remesas_nal <- remesas_nal %>% 
   cbind(dlls_ajustada, mxn_real_ajustada) %>% 
   mutate(dlls_ajustada = as.numeric(dlls_ajustada), mxn_real_ajustada = as.numeric(mxn_real_ajustada),
          dlls_tendencia = as.numeric(dlls_tendencia), mxn_real_tendencia = as.numeric(mxn_real_tendencia))
 
-# write.csv(series_ajustadas, "series_ajustadas.csv", row.names = FALSE)
+# Exportamos a Excel ------------------------------------------------------------------------------------------------------------------------------
+
+# write.csv(remesas_nal, "series_ajustadas.csv", row.names = FALSE)
 
 # Configurar el primer eje vertical y trazar la primera serie
+par(mar = c(5, 4, 4, 4) + 0.3)
 plot(dlls_ajustada, type = "l", col = "red", ylim = c(0000, 6000), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
-axis(side = 1, at = seq_along(series_originales$Fecha), labels = series_originales$Fecha, las = 2)
 axis(side = 2, at = pretty(range(dlls_ajustada)), col = "red", col.axis = "red", las = 2)
 
 # Configurar el segundo eje vertical y trazar la segunda serie
@@ -122,13 +174,14 @@ par(new = TRUE)
 plot(mxn_real_ajustada, type = "l", col = "blue", ylim = range(mxn_real_ajustada), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
 axis(side = 4, at = pretty(range(mxn_real_ajustada)), col = "blue", col.axis = "blue", las = 2)
 
+axis(side = 1, at = seq_along(remesas_nal$Fecha), labels = remesas_nal$Fecha, las = 2)
+
 # Etiquetas
 title(main = "Recepción de Remesas (millones)")
-legend("topleft", legend = c("Dólares", "Pesos Constantes"), col = c("red", "blue"), lty = 1)
+legend("topleft", legend = c("Dólares", "Pesos Constantes"), col = c("red", "blue"), lty = 1, box.lty = 1, cex = 0.8)
 
 boxplot(ts_remesas_dlls~cycle(ts_remesas_dlls), xlab = "Month", ylab = "Dólares",
         main = "Recepción de Remesas", names = month.abb, col = "red")
 
 boxplot(ts_remesas_mxn_real~cycle(ts_remesas_mxn_real), xlab = "Month", ylab = "Pesos Constantes",
         main = "Recepción de Remesas", names = month.abb, col = "blue")
-
