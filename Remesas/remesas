@@ -130,7 +130,8 @@ for (col in names(remesas_subnal)[-which(names(remesas_subnal) == c("Fecha", "td
   remesas_subnal[[col]] <- remesas_subnal[[col]] * tdc / inpc *100
 }
 
-
+remesas_subnal <- select(remesas_subnal, -c(inpc, tdc)) %>% 
+  gather(key = "ent", value = "remesas", Ags:Nal)
 
 # Exploración de Series de Tiempo ----------------------------------------------------------------------------------------------------------------
 
