@@ -26,6 +26,7 @@ library(writexl)
 library(showtext)
 library(sysfonts)
 library(scales)
+library(gganimate)
 
 # Agregar la fuente Montserrat desde Google Fonts
 font_add_google("Montserrat", "montserrat")
@@ -178,7 +179,7 @@ write_xlsx(list("Nacional" = remesas_nal, "Sub-nacional" = remesas_subnal), "Rec
 # Consruimos visualización de datos ---------------------------------------------------------------------------------------------------------------
 conversion_factor <- mean(remesas_nal$remesas_mxn_real / remesas_nal$remesas_dlls, na.rm = TRUE)
 
-ggplot(remesas_nal, aes(x = Fecha)) +
+p <- ggplot(remesas_nal, aes(x = Fecha)) +
   # Agregar las series originales
   geom_line(aes(y = remesas_dlls), color = "gray80", size = 0.5, linetype = "solid") +
   geom_line(aes(y = remesas_mxn_real/conversion_factor), color = "gray80", size = 0.5, linetype = "solid") +
@@ -226,12 +227,18 @@ ggplot(remesas_nal, aes(x = Fecha)) +
     axis.text.y = element_text(size = 21, color = "black"),
     axis.ticks = element_line(size = 0.2, color = "black"),
     axis.ticks.length = unit(5, "pt"),
-    axis.line.x = element_line(color = "black", size = 0.5),
-    axis.line.y = element_line(color = "black", size = 0.5),
     panel.border = element_blank(),
     panel.grid = element_blank(),
+    axis.line.x = element_line(color = "black", size = 0.5),
+    axis.line.y = element_line(color = "black", size = 0.5),
     plot.background = element_rect(fill = "white", color = NA),
     panel.background = element_rect(fill = "white", color = NA),
-  )
+  ) +
+  # Animar las series a lo largo del tiempo
+  transition_reveal(date)
 
-ggsave("AM202405_Remesas.png", width = 10, height = 6)
+# Guardar la animación
+anim <- animate(p, nframes = 200, width = 10, height = 6)
+anim_save("AM202405_Remesas.gif", animation = anim)
+
+# ggsave("AM202405_Remesas.png", width = 10, height = 6)
