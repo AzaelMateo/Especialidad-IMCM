@@ -10,7 +10,7 @@
 #/************************************************************************************************************************************************/
 
 rm(list = ls())
-wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas/"
+wd <- "C:/Users/DELL/Documents/Especialidad"
 setwd(wd)
 options(scipen=999)
 
@@ -22,6 +22,16 @@ library(ggtext)
 library(janitor)
 library(glue)
 library(ggthemes)
+library(writexl)
+library(showtext)
+library(sysfonts)
+library(scales)
+
+# Agregar la fuente Montserrat desde Google Fonts
+font_add_google("Montserrat", "montserrat")
+
+# Habilitar showtext para usar las fuentes
+showtext_auto()
 
 # Descarga y limpieza de datos -------------------------------------------------------------------------------------------------------------------
 
@@ -162,27 +172,66 @@ remesas_nal <- remesas_nal %>%
          dlls_tendencia = as.numeric(dlls_tendencia), mxn_real_tendencia = as.numeric(mxn_real_tendencia))
 
 # Exportamos a Excel ------------------------------------------------------------------------------------------------------------------------------
+write_xlsx(list("Nacional" = remesas_nal, "Sub-nacional" = remesas_subnal), "Recepcion de remesas.xlsx")
 
-# write.csv(remesas_nal, "series_ajustadas.csv", row.names = FALSE)
 
-# Configurar el primer eje vertical y trazar la primera serie
-par(mar = c(5, 4, 4, 4) + 0.3)
-plot(dlls_ajustada, type = "l", col = "red", ylim = c(0000, 6000), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
-axis(side = 2, at = pretty(range(dlls_ajustada)), col = "red", col.axis = "red", las = 2)
+# Consruimos visualización de datos ---------------------------------------------------------------------------------------------------------------
+conversion_factor <- mean(remesas_nal$remesas_mxn_real / remesas_nal$remesas_dlls, na.rm = TRUE)
 
-# Configurar el segundo eje vertical y trazar la segunda serie
-par(new = TRUE)
-plot(mxn_real_ajustada, type = "l", col = "blue", ylim = range(mxn_real_ajustada), xlab = "", ylab = "", xaxt = "n", yaxt = "n")
-axis(side = 4, at = pretty(range(mxn_real_ajustada)), col = "blue", col.axis = "blue", las = 2)
+ggplot(remesas_nal, aes(x = Fecha)) +
+  # Agregar las series originales
+  geom_line(aes(y = remesas_dlls), color = "gray80", size = 0.5, linetype = "solid") +
+  geom_line(aes(y = remesas_mxn_real/conversion_factor), color = "gray80", size = 0.5, linetype = "solid") +
+  # Agregar las series tendencia-ciclo
+  geom_line(aes(y = dlls_tendencia, color = "Dólares | Tendencia-ciclo"), size = 1, linetype = "solid") +
+  geom_line(aes(y = mxn_real_tendencia/conversion_factor, color = "Pesos $2018 | Tendencia-ciclo"), size = 1, linetype = "solid") +
+  # Personalizar colores y etiquetas
+  scale_color_manual(values = c("Dólares | Tendencia-ciclo" = "brown", 
+                                "Pesos $2018 | Tendencia-ciclo" = "#040254")) +
+  # Ajustar el eje y primario y secundario
+  scale_y_continuous(name = "Dólares",
+                     breaks = seq(0, max(remesas_nal$remesas_dlls, na.rm = TRUE), by = 500),
+                     labels = dollar_format(prefix = "$"),
+                     sec.axis = sec_axis(~ . * conversion_factor, 
+                                         name = "Pesos $2018",
+                                         breaks = seq(0, max(remesas_nal$remesas_mxn_real, na.rm = TRUE)*conversion_factor, by = 10000),
+                                         labels = dollar_format(prefix = "$")
+                                         )
+                     ) +
+  # Ajustar el eje x para que muestre los años de forma adecuada
+  scale_x_date(
+    breaks = seq(min(remesas_nal$Fecha), max(remesas_nal$Fecha), by = "1 year"),
+    date_labels = "%Y"
+  ) +
+  # Agregar títulos y etiquetas
+  labs(title = "Ingresos por Remesas a México",
+       subtitle = "Flujo mensual en millones",
+       caption = "Fuente: INEGI; Banxico. 2024. Elaborado por Azael Mateo @xzxxlmxtxx",
+       x = NULL,
+       y = NULL,
+       color = NULL) +
+  # Ajustar tema
+  theme_minimal(base_family = "montserrat") +
+  theme(
+    plot.title = element_text(size = 52, face = "bold", family = "montserrat"),
+    plot.subtitle = element_text(size = 42, family = "montserrat"),
+    plot.caption = element_text(size = 24, family = "montserrat", hjust = 1.1, margin = margin(t = 10)),
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.margin = margin(t = 10),
+    legend.text = element_text(size = 26),
+    axis.title.y.left = element_text(size = 26, family = "montserrat", angle = 0, vjust = 1, hjust = .5, margin = margin(r = -20)),
+    axis.title.y.right = element_text(size = 26, family = "montserrat", angle = 0, vjust = 1, hjust = .5, margin = margin(l = -30)),
+    axis.text.x = element_text(size = 21, color = "black"),
+    axis.text.y = element_text(size = 21, color = "black"),
+    axis.ticks = element_line(size = 0.2, color = "black"),
+    axis.ticks.length = unit(5, "pt"),
+    axis.line.x = element_line(color = "black", size = 0.5),
+    axis.line.y = element_line(color = "black", size = 0.5),
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+  )
 
-axis(side = 1, at = seq_along(remesas_nal$Fecha), labels = remesas_nal$Fecha, las = 2)
-
-# Etiquetas
-title(main = "Recepción de Remesas (millones)")
-legend("topleft", legend = c("Dólares", "Pesos Constantes"), col = c("red", "blue"), lty = 1, box.lty = 1, cex = 0.8)
-
-boxplot(ts_remesas_dlls~cycle(ts_remesas_dlls), xlab = "Month", ylab = "Dólares",
-        main = "Recepción de Remesas", names = month.abb, col = "red")
-
-boxplot(ts_remesas_mxn_real~cycle(ts_remesas_mxn_real), xlab = "Month", ylab = "Pesos Constantes",
-        main = "Recepción de Remesas", names = month.abb, col = "blue")
+ggsave("AM202405_Remesas.png", width = 10, height = 6)
