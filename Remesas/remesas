@@ -10,7 +10,7 @@
 #/************************************************************************************************************************************************/
 
 rm(list = ls())
-wd <- "C:/Users/DELL/Documents/Especialidad"
+wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas"
 setwd(wd)
 options(scipen=999)
 
@@ -27,6 +27,7 @@ library(showtext)
 library(sysfonts)
 library(scales)
 library(gganimate)
+library(gifski)
 
 # Agregar la fuente Montserrat desde Google Fonts
 font_add_google("Montserrat", "montserrat")
@@ -197,8 +198,8 @@ p <- ggplot(remesas_nal, aes(x = Fecha)) +
                                          name = "Pesos $2018",
                                          breaks = seq(0, max(remesas_nal$remesas_mxn_real, na.rm = TRUE)*conversion_factor, by = 10000),
                                          labels = dollar_format(prefix = "$")
-                                         )
-                     ) +
+                     )
+  ) +
   # Ajustar el eje x para que muestre los años de forma adecuada
   scale_x_date(
     breaks = seq(min(remesas_nal$Fecha), max(remesas_nal$Fecha), by = "1 year"),
@@ -232,13 +233,13 @@ p <- ggplot(remesas_nal, aes(x = Fecha)) +
     axis.line.x = element_line(color = "black", size = 0.5),
     axis.line.y = element_line(color = "black", size = 0.5),
     plot.background = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "white", color = NA),
-  ) +
-  # Animar las series a lo largo del tiempo
-  transition_reveal(date)
+    panel.background = element_rect(fill = "white", color = NA))
+  # ) +
+  # # Animar las series a lo largo del tiempo
+  # transition_reveal(Fecha)
 
 # Guardar la animación
-anim <- animate(p, nframes = 200, width = 10, height = 6)
-anim_save("AM202405_Remesas.gif", animation = anim)
+# anim <- animate(p, nframes = 200, width = 3000, height = 1800, res = 110)
+# anim_save("AM202405_Remesas.gif", animation = anim)
 
-# ggsave("AM202405_Remesas.png", width = 10, height = 6)
+ggsave("AM202405_Remesas.png", width = 10, height = 6)
