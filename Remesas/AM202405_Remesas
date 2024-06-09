@@ -67,7 +67,7 @@ for (nombre_serie in names(vars_inegi)) {
 }
 
 # Limpiamos serie del inpc
-inpc <- filter(inpc, date >= as.Date("1995-01-01") & date <= as.Date("2024-03-01")) %>% 
+inpc <- filter(inpc, date >= as.Date("1995-01-01") & date <= floor_date(Sys.Date(), "month") - months(1)) %>% 
   rename(Fecha = date, inpc = values)
 
 # Descargamos las series de interés usando la API de Banxico
@@ -113,7 +113,7 @@ vars_banxico <- list(
 
 # Procesar cada serie
 series_banxico <- map(names(vars_banxico), ~ {
-  temp <- getSeriesData(vars_banxico[[.x]], '1995-01-01', '2024-03-31')[[1]]
+  temp <- getSeriesData(vars_banxico[[.x]], '1995-01-01', format(floor_date(Sys.Date(), "month") - days(1), "%Y-%m-%d"))[[1]]
   setNames(as_tibble(temp), c("Fecha", .x))
 })
 
@@ -233,10 +233,11 @@ p <- ggplot(remesas_nal, aes(x = Fecha)) +
     axis.line.x = element_line(color = "black", size = 0.5),
     axis.line.y = element_line(color = "black", size = 0.5),
     plot.background = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "white", color = NA))
-  # ) +
-  # # Animar las series a lo largo del tiempo
-  # transition_reveal(Fecha)
+    panel.background = element_rect(fill = "white", color = NA)
+    ) +
+  annotate("text", x = max(remesas_nal$Fecha), y = 300, label = format(max(remesas_nal$Fecha), "%B"), size = 10, color = "black")
+# # Animar las series a lo largo del tiempo
+# transition_reveal(Fecha)
 
 # Guardar la animación
 # anim <- animate(p, nframes = 200, width = 3000, height = 1800, res = 110)
