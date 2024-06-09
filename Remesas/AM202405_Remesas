@@ -217,7 +217,7 @@ p <- ggplot(remesas_nal, aes(x = Fecha)) +
   theme(
     plot.title = element_text(size = 52, face = "bold", family = "montserrat"),
     plot.subtitle = element_text(size = 42, family = "montserrat"),
-    plot.caption = element_text(size = 24, family = "montserrat", hjust = 1.1, margin = margin(t = 10)),
+    plot.caption = element_text(size = 32, family = "montserrat", hjust = 1.1, margin = margin(t = 10)),
     legend.position = "top",
     legend.title = element_blank(),
     legend.margin = margin(t = 10),
@@ -235,7 +235,7 @@ p <- ggplot(remesas_nal, aes(x = Fecha)) +
     plot.background = element_rect(fill = "white", color = NA),
     panel.background = element_rect(fill = "white", color = NA)
     ) +
-  annotate("text", x = max(remesas_nal$Fecha), y = 300, label = format(max(remesas_nal$Fecha), "%B"), size = 10, color = "black")
+  annotate("text", x = max(remesas_nal$Fecha), y = 300, label = format(max(remesas_nal$Fecha), "%B"), size = 9, color = "black")
 # # Animar las series a lo largo del tiempo
 # transition_reveal(Fecha)
 
