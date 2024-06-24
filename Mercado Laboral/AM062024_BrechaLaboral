@@ -1,0 +1,249 @@
+
+#/************************************************************************************************************************************************
+# Filename: AM202405_Remesas
+# Author: Azael Mateo
+# Date: 06/May 2024
+#
+# Purpose: This file generates the script to build a vis of ...
+#
+# Created files: -
+#/************************************************************************************************************************************************/
+
+rm(list = ls())
+wd <- "D:/Users/MAMA95C3/Desktop/Especialidad/Remesas"
+setwd(wd)
+options(scipen=999)
+
+library(tidyverse)
+library(inegiR)
+library(seasonal)
+library(siebanxicor)
+library(ggtext)
+library(janitor)
+library(glue)
+library(ggthemes)
+library(writexl)
+library(showtext)
+library(sysfonts)
+library(scales)
+library(gganimate)
+library(gifski)
+
+# Agregar la fuente Montserrat desde Google Fonts
+font_add_google("Montserrat", "montserrat")
+
+# Habilitar showtext para usar las fuentes
+showtext_auto()
+
+# Descarga y limpieza de datos -------------------------------------------------------------------------------------------------------------------
+
+# Descargamos las series de interés usando la API de Inegi
+token_inegi <- "fc69a858-83ff-46cf-16e1-592f67f0f400"
+url_inegi <- paste("https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/CL_INDICATOR/289248,289278,289289/es/BIE/2.0/",
+                   token_inegi,
+                   "?type=xml",
+                   sep = "")
+
+
+download.file(url_inegi, "metadata.xml", method = "auto")
+
+vars_inegi <- list(
+  pd = "289289", #población desocupada
+  pnea = "289248", #pobación no económicamente activa
+  pso = "289278" #población subocupada
+    
+)
+
+# Definir función para procesar cada serie
+procesar_serie <- function(serie_id, token_inegi) {
+  serie <- inegi_series(serie_id, token_inegi)
+  serie <- as_tibble(serie) %>%
+    select(-date_shortcut, -notes) %>%
+    arrange(date)
+  
+  return(serie)
+}
+
+# Procesar cada serie
+for (nombre_serie in names(vars_inegi)) {
+  assign(nombre_serie, procesar_serie(vars_inegi[[nombre_serie]], token_inegi))
+}
+
+# Limpiamos serie del inpc
+inpc <- filter(inpc, date >= as.Date("1995-01-01") & date <= floor_date(Sys.Date(), "quarter") - months(3)) %>% 
+  rename(Fecha = date, inpc = values)
+
+# Descargamos las series de interés usando la API de Banxico
+setToken("1af6c7a83023f55e305ff39f285c00d998c6c05e0c77ff08bd9f019e619453ff")
+
+vars_banxico <- list(
+  remesas_dlls = "SE27803", #remesas totales corrientes
+  tdc = "SF17908",#tipo de cambio
+  Ags = "SE29670",#Aguascalientes
+  BC = "SE29671", #Baja California
+  BCS = "SE29672", #Baja California Sur
+  Camp = "SE29673", #Campeche
+  Coah = "SE29674", #Coahuila
+  Col = "SE29675", #Colima
+  Chis = "SE29676", #Chiapas
+  Chih = "SE29677", #Chihuahua
+  CDMX = "SE29678", #CDMX
+  Dgo = "SE29679", #Durango
+  Mex = "SE29680", #México
+  Gto = "SE29681", #Guanajuato
+  Gro = "SE29682", #Guerrero
+  Hgo = "SE29683", #Hidalgo
+  Jal = "SE29684", #Jalisco
+  Mich = "SE29685", #Michoacán
+  Mor = "SE29686", #Morelos
+  Nay = "SE29687", #Nayarit
+  NL = "SE29688", #Nuevo León
+  Oax = "SE29689", #Oaxaca
+  Pue = "SE29690", #Puebla
+  Qro = "SE29691", #Querétaro
+  QRoo = "SE29692", #Quintana Roo
+  SLP = "SE29693", #San Luis Potosí
+  Sin = "SE29694", #Sinaloa
+  Son = "SE29695", #Sonora
+  Tab = "SE29696", #Tabasco
+  Tamps = "SE29697", #Tamaulipas
+  Tlax = "SE29698", #Tlaxcala
+  Ver = "SE29699", #Veracruz
+  Yuc = "SE29700", #Yucatán
+  Zac = "SE29701", #Zacatecas
+  Nal = "SE29702" #Nacional 
+) 
+
+# Procesar cada serie
+series_banxico <- map(names(vars_banxico), ~ {
+  temp <- getSeriesData(vars_banxico[[.x]], '1995-01-01', format(floor_date(Sys.Date(), "month") - days(1), "%Y-%m-%d"))[[1]]
+  setNames(as_tibble(temp), c("Fecha", .x))
+})
+
+# conglomeramos cada base en una sola 
+conglo <- series_banxico[[1]]
+for (i in 2:length(series_banxico)) {
+  conglo <- left_join(conglo, series_banxico[[i]], by = "Fecha")
+}
+
+# construimos base nacional
+remesas_nal <- left_join(conglo, inpc, by = "Fecha") %>% 
+  mutate(remesas_mxn = remesas_dlls * tdc,
+         remesas_mxn_real = remesas_mxn / inpc * 100) %>% 
+  select(Fecha:tdc, remesas_mxn, inpc, remesas_mxn_real)
+
+# construimos base subnacional
+remesas_subnal <- left_join(conglo, inpc, by = "Fecha") %>% 
+  select(Fecha, tdc, inpc, Ags:Nal) %>% 
+  filter(!is.na(Nal))
+
+# Creamos un bucle para iterar sobre cada entidad federativa
+tdc <- remesas_subnal$tdc
+inpc <- remesas_subnal$inpc
+
+for (col in names(remesas_subnal)[-which(names(remesas_subnal) == c("Fecha", "tdc", "inpc"))]) {
+  remesas_subnal[[col]] <- remesas_subnal[[col]] * tdc / inpc *100
+}
+
+remesas_subnal <- select(remesas_subnal, -c(inpc, tdc)) %>% 
+  gather(key = "ent", value = "remesas", Ags:Nal)
+
+# Exploración de Series de Tiempo ----------------------------------------------------------------------------------------------------------------
+
+# Construimos las series de tiempo que nos interesan
+ts_remesas_dlls <- ts(remesas_nal[,2], start = c(1995, 1), frequency = 12)
+ts_remesas_mxn_real <- ts(remesas_nal[,6], start = c(1995, 1), frequency = 12)
+
+plot(decompose(ts_remesas_dlls)) #descomposición
+plot(decompose(ts_remesas_mxn_real)) #descomposición
+
+Model_dlls <- seas(ts_remesas_dlls, x11 = "") #modelo de ajuste estacional
+summary(Model_dlls)
+Model_mxn_real <- seas(ts_remesas_mxn_real, x11 = "") #modelo de ajuste estacional
+summary(Model_mxn_real)
+
+plot(Model_dlls) #gráficos del ajuste estacional
+plot(Model_mxn_real) #gráficos del ajuste estacional
+
+dlls_ajustada <- final(Model_dlls) # Obtener la serie ajustada del modelo
+mxn_real_ajustada <- final(Model_mxn_real) # Obtener la serie ajustada del modelo
+dlls_tendencia <- trend(Model_dlls) # Obtener la serie tendencia-ciclo del modelo
+mxn_real_tendencia <- trend(Model_mxn_real) # Obtener la serie tendencia-ciclo del modelo
+
+# Integramos series ajustadas a nuestra base
+remesas_nal <- remesas_nal %>% 
+  cbind(dlls_ajustada, mxn_real_ajustada) %>% 
+  mutate(dlls_ajustada = as.numeric(dlls_ajustada), mxn_real_ajustada = as.numeric(mxn_real_ajustada),
+         dlls_tendencia = as.numeric(dlls_tendencia), mxn_real_tendencia = as.numeric(mxn_real_tendencia))
+
+# Exportamos a Excel ------------------------------------------------------------------------------------------------------------------------------
+write_xlsx(list("Nacional" = remesas_nal, "Sub-nacional" = remesas_subnal), "Recepcion de remesas.xlsx")
+
+
+# Consruimos visualización de datos ---------------------------------------------------------------------------------------------------------------
+conversion_factor <- mean(remesas_nal$remesas_mxn_real / remesas_nal$remesas_dlls, na.rm = TRUE)
+
+p <- ggplot(remesas_nal, aes(x = Fecha)) +
+  # Agregar las series originales
+  geom_line(aes(y = remesas_dlls), color = "gray80", size = 0.5, linetype = "solid") +
+  geom_line(aes(y = remesas_mxn_real/conversion_factor), color = "gray80", size = 0.5, linetype = "solid") +
+  # Agregar las series tendencia-ciclo
+  geom_line(aes(y = dlls_tendencia, color = "Dólares | Tendencia-ciclo"), size = 1, linetype = "solid") +
+  geom_line(aes(y = mxn_real_tendencia/conversion_factor, color = "Pesos $2018 | Tendencia-ciclo"), size = 1, linetype = "solid") +
+  # Personalizar colores y etiquetas
+  scale_color_manual(values = c("Dólares | Tendencia-ciclo" = "brown", 
+                                "Pesos $2018 | Tendencia-ciclo" = "#040254")) +
+  # Ajustar el eje y primario y secundario
+  scale_y_continuous(name = "Dólares",
+                     breaks = seq(0, max(remesas_nal$remesas_dlls, na.rm = TRUE), by = 500),
+                     labels = dollar_format(prefix = "$"),
+                     sec.axis = sec_axis(~ . * conversion_factor, 
+                                         name = "Pesos $2018",
+                                         breaks = seq(0, max(remesas_nal$remesas_mxn_real, na.rm = TRUE)*conversion_factor, by = 10000),
+                                         labels = dollar_format(prefix = "$")
+                     )
+  ) +
+  # Ajustar el eje x para que muestre los años de forma adecuada
+  scale_x_date(
+    breaks = seq(min(remesas_nal$Fecha), max(remesas_nal$Fecha), by = "1 year"),
+    date_labels = "%Y"
+  ) +
+  # Agregar títulos y etiquetas
+  labs(title = "Ingresos por Remesas a México",
+       subtitle = "Flujo mensual en millones",
+       caption = "Fuente: INEGI; Banxico. 2024. Elaborado por Azael Mateo @xzxxlmxtxx",
+       x = NULL,
+       y = NULL,
+       color = NULL) +
+  # Ajustar tema
+  theme_minimal(base_family = "montserrat") +
+  theme(
+    plot.title = element_text(size = 52, face = "bold", family = "montserrat"),
+    plot.subtitle = element_text(size = 42, family = "montserrat"),
+    plot.caption = element_text(size = 32, family = "montserrat", hjust = 1.1, margin = margin(t = 10)),
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.margin = margin(t = 10),
+    legend.text = element_text(size = 26),
+    axis.title.y.left = element_text(size = 26, family = "montserrat", angle = 0, vjust = 1, hjust = .5, margin = margin(r = -20)),
+    axis.title.y.right = element_text(size = 26, family = "montserrat", angle = 0, vjust = 1, hjust = .5, margin = margin(l = -30)),
+    axis.text.x = element_text(size = 21, color = "black"),
+    axis.text.y = element_text(size = 21, color = "black"),
+    axis.ticks = element_line(size = 0.2, color = "black"),
+    axis.ticks.length = unit(5, "pt"),
+    panel.border = element_blank(),
+    panel.grid = element_blank(),
+    axis.line.x = element_line(color = "black", size = 0.5),
+    axis.line.y = element_line(color = "black", size = 0.5),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  ) +
+  annotate("text", x = max(remesas_nal$Fecha), y = 300, label = format(max(remesas_nal$Fecha), "%B"), size = 9, color = "black")
+# # Animar las series a lo largo del tiempo
+# transition_reveal(Fecha)
+
+# Guardar la animación
+# anim <- animate(p, nframes = 200, width = 3000, height = 1800, res = 110)
+# anim_save("AM202405_Remesas.gif", animation = anim)
+
+ggsave("AM202405_Remesas.png", width = 10, height = 6)
